@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  api-gateway:
+    build: ./api-gateway
+    ports:
+      - "8000:8000"
+    depends_on:
+      - ozon-parser
+      - wildberries-parser
+      - goldapple-parser
+    environment:
+      - OZON_PARSER_URL=http://ozon-parser:8001
+      - WILDBERRIES_PARSER_URL=http://wildberries-parser:8002
+      - GOLDAPPLE_PARSER_URL=http://goldapple-parser:8003
+
+  ozon-parser:
+    build: ./parsers/ozon
+    ports:
+      - "8001:8001"
+
+  wildberries-parser:
+    build: ./parsers/wildberries
+    ports:
+      - "8002:8002"
+
+  goldapple-parser:
+    build: ./parsers/goldapple
+    ports:
+      - "8003:8003"
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api-gateway 
