@@ -15,17 +15,23 @@ services:
       - GOLDAPPLE_PARSER_URL=http://goldapple-parser:8003
 
   ozon-parser:
-    build: ./parsers/ozon
+    build:
+      context: ./parsers
+      dockerfile: ozon/Dockerfile
     ports:
       - "8001:8001"
 
   wildberries-parser:
-    build: ./parsers/wildberries
+    build:
+      context: ./parsers
+      dockerfile: wildberries/Dockerfile
     ports:
       - "8002:8002"
 
   goldapple-parser:
-    build: ./parsers/goldapple
+    build:
+      context: ./parsers
+      dockerfile: goldapple/Dockerfile
     ports:
       - "8003:8003"
 

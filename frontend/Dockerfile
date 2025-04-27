@@ -1,8 +1,9 @@
-FROM node:14-alpine
+FROM node:14-alpine as build
 
 WORKDIR /app
 
 COPY package*.json ./
+RUN npm cache clean --force
 RUN npm install
 
 COPY . .
@@ -10,6 +11,7 @@ COPY . .
 RUN npm run build
 
 FROM nginx:alpine
-COPY --from=0 /app/build /usr/share/nginx/html
+COPY --from=build /app/build /usr/share/nginx/html
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 3000
 CMD ["nginx", "-g", "daemon off;"] 
