@@ -72,7 +72,11 @@ async def search_products(search: ProductSearch):
                 continue
         
         logger.info(f"Successfully parsed {len(products)} products")
-        return products
+        
+        # Преобразуем в JSON
+        products_json = [product.dict() for product in products]
+        logger.info(f"Returning {len(products_json)} products as JSON")
+        return products_json
         
     except Exception as e:
         logger.error(f"Error in search_products: {str(e)}", exc_info=True)

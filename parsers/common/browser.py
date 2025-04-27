@@ -128,29 +128,32 @@ class BrowserManager:
         # Используем прокси только если список не пуст
         proxy = await self.get_random_proxy() if PROXIES else None
         page = await self.get_page(proxy)
-        
         try:
             logger.info(f"Searching for '{query}' on {marketplace}")
-            
             # Переходим на страницу поиска
             await page.goto(url, wait_until="networkidle")
-            
+            # Диагностика: делаем скриншот после загрузки страницы
+            if marketplace == "ozon":
+                await page.screenshot(path=f'/tmp/ozon_debug_{query}.png', full_page=True)
+            # Выбираем селектор ожидания в зависимости от маркетплейса
+            if marketplace == "ozon":
+                selector = '[data-widget="searchResultsV2"] [data-index], [data-index]'
+            elif marketplace == "wildberries":
+                selector = '.product-card, .catalog-item, .product-card__main, [data-product-id], .product-card__container, .catalog-item__container'
+            else:
+                selector = ".product-card, .catalog-item"
             # Ждем загрузки результатов
-            await page.wait_for_selector(".product-card, .catalog-item, .tile-hover-target", timeout=10000)
-            
+            await page.wait_for_selector(selector, timeout=30000)
             # Получаем HTML страницы
             html = await page.content()
-            
             # Закрываем страницу
             await page.close()
-            
             return {
                 "html": html,
                 "status": "success",
                 "marketplace": marketplace,
                 "query": query
             }
-            
         except Exception as e:
             logger.error(f"Error searching products on {marketplace}: {str(e)}", exc_info=True)
             await page.close()

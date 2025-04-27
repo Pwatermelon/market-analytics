@@ -37,11 +37,25 @@ class ProductParser:
         if not price_text:
             return 0.0
         
-        # Удаляем все символы кроме цифр и точки
-        cleaned = re.sub(r'[^\d.]', '', price_text)
-        
         try:
-            return float(cleaned)
+            # Удаляем все символы кроме цифр, точки и запятой
+            cleaned = re.sub(r'[^\d.,]', '', price_text)
+            
+            # Заменяем запятую на точку
+            cleaned = cleaned.replace(',', '.')
+            
+            # Если есть несколько точек, оставляем только первую
+            if cleaned.count('.') > 1:
+                cleaned = cleaned.replace('.', '', cleaned.count('.') - 1)
+            
+            # Преобразуем в float
+            price = float(cleaned)
+            
+            # Если цена слишком большая (вероятно, ошибка парсинга), делим на 100
+            if price > 1000000:
+                price = price / 100
+            
+            return price
         except (ValueError, TypeError):
             return 0.0
     
@@ -68,14 +82,31 @@ class WildberriesParser(ProductParser):
     def _extract_products(self, soup: BeautifulSoup, limit: int) -> List[Dict[str, Any]]:
         products = []
         
-        # Ищем карточки товаров
-        product_cards = soup.select('.product-card')
-        if not product_cards:
-            product_cards = soup.select('.catalog-item')
-        if not product_cards:
-            product_cards = soup.select('.product-card__main')
+        # Ищем карточки товаров с разными селекторами
+        product_cards = []
+        selectors = [
+            '.product-card',
+            '.catalog-item',
+            '.product-card__main',
+            '[data-product-id]',  # Ищем по атрибуту data-product-id
+            '.product-card__container',  # Новый селектор
+            '.catalog-item__container'   # Новый селектор
+        ]
         
-        logger.info(f"Found {len(product_cards)} product cards on Wildberries")
+        for selector in selectors:
+            cards = soup.select(selector)
+            if cards:
+                product_cards = cards
+                logger.info(f"Found {len(cards)} product cards using selector: {selector}")
+                break
+        
+        if not product_cards:
+            logger.warning("No product cards found with any selector")
+            # Попробуем найти товары по другим признакам
+            product_cards = soup.find_all('div', class_=lambda x: x and ('product' in x.lower() or 'card' in x.lower()))
+            logger.info(f"Found {len(product_cards)} product cards using alternative search")
+        
+        logger.info(f"Total found {len(product_cards)} product cards on Wildberries")
         
         for card in product_cards[:limit]:
             try:
@@ -83,36 +114,117 @@ class WildberriesParser(ProductParser):
                 product_id = card.get('data-product-id', '')
                 if not product_id:
                     # Пробуем найти ID в ссылке
-                    link = card.select_one('a[href*="/catalog/"]')
-                    if link and 'href' in link.attrs:
+                    links = card.find_all('a', href=True)
+                    for link in links:
                         href = link['href']
-                        match = re.search(r'/catalog/(\d+)/', href)
-                        if match:
-                            product_id = match.group(1)
+                        # Ищем ID в разных форматах URL
+                        patterns = [
+                            r'/catalog/(\d+)/',
+                            r'/product/(\d+)/',
+                            r'/(\d+)/detail',
+                            r'id=(\d+)'
+                        ]
+                        for pattern in patterns:
+                            match = re.search(pattern, href)
+                            if match:
+                                product_id = match.group(1)
+                                break
+                        if product_id:
+                            break
+                
+                if not product_id:
+                    logger.warning("Could not find product ID, skipping product")
+                    continue
                 
                 # Извлекаем название
-                name_elem = card.select_one('.product-card__name')
-                if not name_elem:
-                    name_elem = card.select_one('.catalog-item__name')
-                name = name_elem.text.strip() if name_elem else ''
+                name = ''
+                name_selectors = [
+                    '.product-card__name',
+                    '.catalog-item__name',
+                    '.product-card__title',
+                    '.catalog-item__title',
+                    'h3',  # Часто название в h3
+                    '[class*="name"]',  # Ищем по частичному совпадению класса
+                    '[class*="title"]'  # Ищем по частичному совпадению класса
+                ]
                 
-                # Извлекаем цену
-                price_elem = card.select_one('.product-card__price')
-                if not price_elem:
-                    price_elem = card.select_one('.catalog-item__price')
-                price_text = price_elem.text.strip() if price_elem else '0'
-                price = self._clean_price(price_text)
+                for selector in name_selectors:
+                    name_elem = card.select_one(selector)
+                    if name_elem and name_elem.text.strip():
+                        name = name_elem.text.strip()
+                        break
                 
-                # Извлекаем описание
-                desc_elem = card.select_one('.product-card__description')
-                description = desc_elem.text.strip() if desc_elem else ''
+                if not name:
+                    logger.warning(f"Could not find product name for ID {product_id}, skipping product")
+                    continue
                 
-                # Извлекаем рейтинг
-                rating_elem = card.select_one('.product-card__rating')
+                # --- Цена ---
+                price = 0.0
+                price_elem = card.select_one('.price__lower-price, .price__current, .price__wrapper, [class*="price"]')
+                if price_elem:
+                    price_text = price_elem.get_text(strip=True)
+                    price = self._clean_price(price_text)
+                else:
+                    # Попробовать найти рубли и копейки по отдельности
+                    rub_elem = card.select_one('.price__rub')
+                    kop_elem = card.select_one('.price__kop')
+                    if rub_elem:
+                        rub = rub_elem.get_text(strip=True)
+                        kop = kop_elem.get_text(strip=True) if kop_elem else '00'
+                        try:
+                            price = float(f'{rub}.{kop}')
+                        except Exception:
+                            price = 0.0
+                
+                # --- Картинка ---
+                image_url = ''
+                img_elem = card.select_one('img')
+                if img_elem:
+                    image_url = img_elem.get('data-src') or img_elem.get('src') or img_elem.get('data-original') or ''
+                    if image_url.startswith('//'):
+                        image_url = 'https:' + image_url
+                    elif image_url.startswith('/'):
+                        image_url = 'https://www.wildberries.ru' + image_url
+                
+                # --- Описание ---
+                description = ''
+                desc_selectors = [
+                    '.product-card__description',
+                    '.catalog-item__description',
+                    '[class*="description"]',
+                    '[class*="desc"]'
+                ]
+                for selector in desc_selectors:
+                    desc_elem = card.select_one(selector)
+                    if desc_elem:
+                        description = desc_elem.text.strip()
+                        break
+                
+                # --- Рейтинг ---
                 rating = None
-                if rating_elem:
-                    rating_text = rating_elem.text.strip()
-                    rating = self._clean_rating(rating_text)
+                # Ищем средний рейтинг (звезды), а не количество отзывов
+                rating_elem = card.select_one('[class*="rating"] [class*="star"]')
+                if rating_elem and rating_elem.get('aria-label'):
+                    # Например: aria-label="4.9 из 5"
+                    m = re.search(r'([\d.,]+)', rating_elem['aria-label'])
+                    if m:
+                        try:
+                            rating = float(m.group(1).replace(',', '.'))
+                        except Exception:
+                            rating = None
+                else:
+                    # Фоллбек: ищем просто число с плавающей точкой
+                    rating_text = None
+                    rating_block = card.select_one('.product-card__rating, [class*="rating"]')
+                    if rating_block:
+                        rating_text = rating_block.get_text(strip=True).replace(',', '.')
+                        try:
+                            val = float(rating_text)
+                            # Если рейтинг явно в диапазоне 0-5, используем
+                            if 0 < val <= 5:
+                                rating = val
+                        except Exception:
+                            rating = None
                 
                 # Создаем объект товара
                 product = {
@@ -122,15 +234,18 @@ class WildberriesParser(ProductParser):
                     "url": f"https://www.wildberries.ru/catalog/{product_id}/detail.aspx",
                     "description": description,
                     "rating": rating,
-                    "marketplace": "wildberries"
+                    "marketplace": "wildberries",
+                    "image_url": image_url
                 }
                 
                 products.append(product)
+                logger.info(f"Successfully parsed product: {name} (ID: {product_id})")
                 
             except Exception as e:
                 logger.error(f"Error parsing Wildberries product card: {str(e)}", exc_info=True)
                 continue
         
+        logger.info(f"Successfully parsed {len(products)} products from Wildberries")
         return products
 
 
@@ -143,13 +258,8 @@ class OzonParser(ProductParser):
     def _extract_products(self, soup: BeautifulSoup, limit: int) -> List[Dict[str, Any]]:
         products = []
         
-        # Ищем карточки товаров
-        product_cards = soup.select('.tile-hover-target')
-        if not product_cards:
-            product_cards = soup.select('.product-card')
-        if not product_cards:
-            product_cards = soup.select('.tsBody500')
-        
+        # Новый селектор карточек Ozon
+        product_cards = soup.select('[data-widget="searchResultsV2"] [data-index]')
         logger.info(f"Found {len(product_cards)} product cards on Ozon")
         
         for card in product_cards[:limit]:
@@ -157,7 +267,6 @@ class OzonParser(ProductParser):
                 # Извлекаем ID товара
                 product_id = card.get('data-product-id', '')
                 if not product_id:
-                    # Пробуем найти ID в ссылке
                     link = card.select_one('a[href*="/product/"]')
                     if link and 'href' in link.attrs:
                         href = link['href']
@@ -174,13 +283,25 @@ class OzonParser(ProductParser):
                 name = name_elem.text.strip() if name_elem else ''
                 
                 # Извлекаем цену
-                price_elem = card.select_one('.c2h5')
+                price_elem = card.select_one('span[data-test-id="tile-price"]')
+                if not price_elem:
+                    price_elem = card.select_one('.c2h5')
                 if not price_elem:
                     price_elem = card.select_one('.product-card__price')
                 if not price_elem:
                     price_elem = card.select_one('.price')
                 price_text = price_elem.text.strip() if price_elem else '0'
                 price = self._clean_price(price_text)
+                
+                # Извлекаем изображение
+                image_url = ''
+                img_elem = card.select_one('img')
+                if img_elem:
+                    image_url = img_elem.get('src') or img_elem.get('data-src') or ''
+                    if image_url.startswith('//'):
+                        image_url = 'https:' + image_url
+                    elif image_url.startswith('/'):
+                        image_url = 'https://www.ozon.ru' + image_url
                 
                 # Извлекаем описание
                 desc_elem = card.select_one('.product-card__description')
@@ -201,7 +322,8 @@ class OzonParser(ProductParser):
                     "url": f"https://www.ozon.ru/product/{product_id}/",
                     "description": description,
                     "rating": rating,
-                    "marketplace": "ozon"
+                    "marketplace": "ozon",
+                    "image_url": image_url
                 }
                 
                 products.append(product)

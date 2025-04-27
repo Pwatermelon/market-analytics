@@ -10,8 +10,11 @@ import {
   Select,
   MenuItem,
   FormControl,
-  InputLabel
+  InputLabel,
+  Chip,
+  Snackbar
 } from '@material-ui/core';
+import { Alert } from '@material-ui/lab';
 import axios from 'axios';
 
 function App() {
@@ -19,19 +22,53 @@ function App() {
   const [marketplace, setMarketplace] = useState('');
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
   const handleSearch = async () => {
+    if (!query.trim()) {
+      setError('Введите поисковый запрос');
+      return;
+    }
+    
     setLoading(true);
+    setError(null);
     try {
-      const response = await axios.post('http://localhost:8000/search', {
-        query,
+      const searchData = {
+        query: query.trim(),
         marketplace: marketplace || undefined
+      };
+      console.log('Sending search request:', searchData);
+      
+      const response = await axios.post('/api/search', searchData, {
+        headers: {
+          'Content-Type': 'application/json'
+        }
       });
-      setProducts(response.data);
+      console.log('Received response:', response.data);
+      
+      if (Array.isArray(response.data)) {
+        setProducts(response.data);
+        if (response.data.length === 0) {
+          setError('Товары не найдены');
+        }
+      } else {
+        console.error('Unexpected response format:', response.data);
+        setError('Неверный формат ответа от сервера');
+      }
     } catch (error) {
       console.error('Error searching products:', error);
+      if (error.response) {
+        console.error('Error response:', error.response.data);
+        setError(error.response.data.detail || 'Ошибка при поиске товаров');
+      } else {
+        setError('Ошибка при подключении к серверу');
+      }
     }
     setLoading(false);
+  };
+
+  const handleCloseError = () => {
+    setError(null);
   };
 
   return (
@@ -47,6 +84,11 @@ function App() {
             label="Поиск товаров"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
+            onKeyPress={(e) => {
+              if (e.key === 'Enter') {
+                handleSearch();
+              }
+            }}
           />
         </Grid>
         <Grid item xs={12} sm={4}>
@@ -77,23 +119,47 @@ function App() {
         </Grid>
       </Grid>
 
+      {products.length === 0 && !loading && (
+        <Typography variant="body1" color="textSecondary" align="center">
+          Введите поисковый запрос и нажмите "Найти"
+        </Typography>
+      )}
+
       <Grid container spacing={3}>
         {products.map((product) => (
           <Grid item xs={12} sm={6} md={4} key={product.id}>
             <Card>
               <CardContent>
-                <Typography variant="h6" component="h2">
+                {product.image_url && (
+                  <img
+                    src={product.image_url}
+                    alt={product.name}
+                    style={{ width: '100%', maxHeight: 200, objectFit: 'contain', marginBottom: 16 }}
+                  />
+                )}
+                <Typography variant="h6" component="h2" gutterBottom>
                   {product.name}
                 </Typography>
-                <Typography color="textSecondary">
-                  {product.marketplace}
-                </Typography>
-                <Typography variant="h5" component="p">
+                <Chip 
+                  label={product.marketplace === 'ozon' ? 'Ozon' : 
+                         product.marketplace === 'wildberries' ? 'Wildberries' : 
+                         product.marketplace === 'goldapple' ? 'Золотое яблоко' : 
+                         product.marketplace}
+                  color="primary"
+                  size="small"
+                  style={{ marginBottom: '1rem' }}
+                />
+                <Typography variant="h5" component="p" gutterBottom>
                   {product.price} ₽
                 </Typography>
                 {product.rating && (
-                  <Typography variant="body2" color="textSecondary">
+                  <Typography variant="body2" color="textSecondary" gutterBottom>
                     Рейтинг: {product.rating}
+                  </Typography>
+                )}
+                {product.description && (
+                  <Typography variant="body2" color="textSecondary" gutterBottom>
+                    {product.description}
                   </Typography>
                 )}
                 <Button
@@ -110,6 +176,12 @@ function App() {
           </Grid>
         ))}
       </Grid>
+
+      <Snackbar open={!!error} autoHideDuration={6000} onClose={handleCloseError}>
+        <Alert onClose={handleCloseError} severity="error">
+          {error}
+        </Alert>
+      </Snackbar>
     </Container>
   );
 }
