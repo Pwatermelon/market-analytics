@@ -3,6 +3,7 @@ import random
 import logging
 from typing import Optional, Dict, Any
 from playwright.async_api import async_playwright, Browser, Page, Response
+from fake_useragent import UserAgent
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
@@ -67,8 +68,9 @@ class BrowserManager:
         if self._browser is None:
             await self.initialize()
         
-        # Выбираем случайный User-Agent
-        user_agent = random.choice(USER_AGENTS)
+        # Генерируем случайный User-Agent
+        ua = UserAgent()
+        user_agent = ua.random
         
         # Настройки контекста
         context_options = {
@@ -84,8 +86,8 @@ class BrowserManager:
             "permissions": ["geolocation"],
         }
         
-        # Добавляем прокси, если указан и список прокси не пуст
-        if proxy and PROXIES:
+        # Добавляем прокси, если указан
+        if proxy:
             context_options["proxy"] = {
                 "server": proxy,
                 "username": "user",  # Заменить на реальные данные
@@ -100,6 +102,15 @@ class BrowserManager:
             Object.defineProperty(navigator, 'webdriver', {
                 get: () => undefined
             });
+            Object.defineProperty(navigator, 'plugins', {
+                get: () => [1, 2, 3, 4, 5]
+            });
+            Object.defineProperty(navigator, 'languages', {
+                get: () => ['ru-RU', 'ru', 'en-US', 'en']
+            });
+            window.chrome = {
+                runtime: {}
+            };
         """)
         
         page = await context.new_page()
@@ -114,7 +125,11 @@ class BrowserManager:
     
     async def _handle_route(self, route):
         """Обработчик маршрутов для блокировки ненужных ресурсов"""
-        if route.request.resource_type in ["image", "font", "media"]:
+        # Разрешаем загрузку изображений
+        if route.request.resource_type in ["image"]:
+            await route.continue_()
+        # Блокируем ненужные ресурсы
+        elif route.request.resource_type in ["font", "media", "other"]:
             await route.abort()
         else:
             await route.continue_()
@@ -125,35 +140,49 @@ class BrowserManager:
     
     async def search_products(self, url: str, marketplace: str, query: str) -> Dict[str, Any]:
         """Поиск товаров на маркетплейсе"""
-        # Используем прокси только если список не пуст
-        proxy = await self.get_random_proxy() if PROXIES else None
-        page = await self.get_page(proxy)
+        page = await self.get_page()
         try:
             logger.info(f"Searching for '{query}' on {marketplace}")
+            
             # Переходим на страницу поиска
             await page.goto(url, wait_until="networkidle")
-            # Диагностика: делаем скриншот после загрузки страницы
-            if marketplace == "ozon":
-                await page.screenshot(path=f'/tmp/ozon_debug_{query}.png', full_page=True)
+            
+            # Добавляем случайную задержку для имитации человеческого поведения
+            await asyncio.sleep(random.uniform(2, 4))
+            
             # Выбираем селектор ожидания в зависимости от маркетплейса
             if marketplace == "ozon":
                 selector = '[data-widget="searchResultsV2"] [data-index], [data-index]'
             elif marketplace == "wildberries":
                 selector = '.product-card, .catalog-item, .product-card__main, [data-product-id], .product-card__container, .catalog-item__container'
+            elif marketplace == "yandexmarket":
+                selector = 'div[data-zone-name="snippet"]'
             else:
                 selector = ".product-card, .catalog-item"
+            
             # Ждем загрузки результатов
             await page.wait_for_selector(selector, timeout=30000)
+            
+            # Прокручиваем страницу для загрузки всех изображений
+            await page.evaluate("""
+                window.scrollTo(0, document.body.scrollHeight);
+                await new Promise(r => setTimeout(r, 1000));
+                window.scrollTo(0, 0);
+            """)
+            
             # Получаем HTML страницы
             html = await page.content()
+            
             # Закрываем страницу
             await page.close()
+            
             return {
                 "html": html,
                 "status": "success",
                 "marketplace": marketplace,
                 "query": query
             }
+            
         except Exception as e:
             logger.error(f"Error searching products on {marketplace}: {str(e)}", exc_info=True)
             await page.close()

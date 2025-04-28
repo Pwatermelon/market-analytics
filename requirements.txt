@@ -1,5 +1,11 @@
-fastapi
-uvicorn
-requests
-beautifulsoup4
-lxml
+fastapi==0.109.2
+uvicorn==0.27.1
+requests==2.31.0
+beautifulsoup4==4.12.3
+lxml==5.1.0
+playwright==1.42.0
+python-dotenv==1.0.1
+aiohttp==3.9.3
+pydantic==2.6.1
+python-multipart==0.0.9
+fake-useragent==1.4.0

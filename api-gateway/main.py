@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="Market Analytics API Gateway")
 
 # Проверка переменных окружения
-required_env_vars = ['OZON_PARSER_URL', 'WILDBERRIES_PARSER_URL', 'GOLDAPPLE_PARSER_URL']
+required_env_vars = ['OZON_PARSER_URL', 'WILDBERRIES_PARSER_URL', 'GOLDAPPLE_PARSER_URL', 'YANDEXMARKET_PARSER_URL']
 missing_vars = [var for var in required_env_vars if not os.getenv(var)]
 if missing_vars:
     raise ValueError(f"Missing required environment variables: {', '.join(missing_vars)}")
@@ -24,6 +24,7 @@ logger.info("Environment variables validated successfully")
 logger.info(f"OZON_PARSER_URL: {os.getenv('OZON_PARSER_URL')}")
 logger.info(f"WILDBERRIES_PARSER_URL: {os.getenv('WILDBERRIES_PARSER_URL')}")
 logger.info(f"GOLDAPPLE_PARSER_URL: {os.getenv('GOLDAPPLE_PARSER_URL')}")
+logger.info(f"YANDEXMARKET_PARSER_URL: {os.getenv('YANDEXMARKET_PARSER_URL')}")
 
 # CORS middleware
 app.add_middleware(
@@ -115,6 +116,14 @@ async def search_products(search: ProductSearch, request: Request):
                 logger.info(f"Sending request to Gold Apple parser: {ga_url}")
                 tasks.append(client.post(
                     ga_url,
+                    json={"query": search.query}
+                ))
+            
+            if not search.marketplace or search.marketplace == "yandexmarket":
+                ym_url = f"{os.getenv('YANDEXMARKET_PARSER_URL')}/search"
+                logger.info(f"Sending request to Yandex Market parser: {ym_url}")
+                tasks.append(client.post(
+                    ym_url,
                     json={"query": search.query}
                 ))
             

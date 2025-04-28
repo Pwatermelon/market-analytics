@@ -9,10 +9,12 @@ services:
       - ozon-parser
       - wildberries-parser
       - goldapple-parser
+      - yandexmarket-parser
     environment:
       - OZON_PARSER_URL=http://ozon-parser:8001
       - WILDBERRIES_PARSER_URL=http://wildberries-parser:8002
       - GOLDAPPLE_PARSER_URL=http://goldapple-parser:8003
+      - YANDEXMARKET_PARSER_URL=http://yandexmarket-parser:8004
 
   ozon-parser:
     build:
@@ -34,6 +36,13 @@ services:
       dockerfile: goldapple/Dockerfile
     ports:
       - "8003:8003"
+
+  yandexmarket-parser:
+    build:
+      context: ./parsers
+      dockerfile: yandexmarket/Dockerfile
+    ports:
+      - "8004:8004"
 
   frontend:
     build: ./frontend

@@ -10,6 +10,7 @@ The system consists of the following components:
    - Ozon Parser (`parsers/ozon/`)
    - Gold Apple Parser (`parsers/goldapple/`)
    - Wildberries Parser (`parsers/wildberries/`)
+   - Yandex Market Parser (`parsers/yandexmarket/`)
 
 2. **Common Modules** (`parsers/common/`):
    - `browser.py` - BrowserManager for handling Playwright browser automation
@@ -22,11 +23,12 @@ The system consists of the following components:
 
 - Automated product data collection from multiple marketplaces
 - Browser automation using Playwright for reliable data extraction
-- Anti-bot detection evasion
+- Anti-bot detection evasion with random User-Agents and browser fingerprinting
 - Rate limiting and request delays
 - Detailed logging for debugging
 - Health check endpoints
 - Docker containerization
+- Image loading and processing for product listings
 
 ## Setup
 
@@ -37,7 +39,12 @@ The system consists of the following components:
 pip install -r requirements.txt
 ```
 
-2. Run individual services:
+2. Install Playwright browsers:
+```bash
+playwright install
+```
+
+3. Run individual services:
 ```bash
 # Run Ozon parser
 cd parsers/ozon
@@ -50,6 +57,10 @@ uvicorn main:app --host 0.0.0.0 --port 8003
 # Run Wildberries parser
 cd parsers/wildberries
 uvicorn main:app --host 0.0.0.0 --port 8002
+
+# Run Yandex Market parser
+cd parsers/yandexmarket
+uvicorn main:app --host 0.0.0.0 --port 8004
 
 # Run API Gateway
 cd api-gateway
@@ -69,6 +80,7 @@ docker-compose up --build
 - Ozon Parser: http://localhost:8001
 - Gold Apple Parser: http://localhost:8003
 - Wildberries Parser: http://localhost:8002
+- Yandex Market Parser: http://localhost:8004
 
 ## API Endpoints
 
@@ -95,6 +107,10 @@ Each parser service exposes the following endpoints:
 ### Common Components
 
 - `BrowserManager` - Handles browser automation with Playwright
+  - Random User-Agent generation
+  - Anti-bot detection evasion
+  - Image loading support
+  - Proper page scrolling for dynamic content
 - `ProductParser` - Base class for marketplace-specific parsers
 - Shared utilities for handling requests, parsing responses, and error handling
 
@@ -117,6 +133,12 @@ The system implements comprehensive error handling:
 2. **Browser automation issues**
    - Verify that Playwright is properly installed
    - Check that the browser is launched with the correct arguments
+   - Ensure all dependencies are installed
+
+3. **Image loading issues**
+   - Check that the browser is configured to load images
+   - Verify that the page is properly scrolled to load all images
+   - Ensure image URLs are properly formatted
 
 ## Contributing
 
