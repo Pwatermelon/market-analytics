@@ -2,22 +2,27 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install system dependencies
+# Настройка DNS
+RUN echo "nameserver 8.8.8.8" > /etc/resolv.conf && \
+    echo "nameserver 8.8.4.4" >> /etc/resolv.conf
+
 RUN apt-get update && apt-get install -y \
     build-essential \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements and install Python dependencies
-COPY requirements.txt .
+# Копируем requirements.txt и устанавливаем зависимости
+COPY yandexmarket/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Install Playwright browsers
+# Установка Playwright и его зависимостей
 RUN playwright install chromium
 RUN playwright install-deps
 
-# Copy parser code
-COPY yandexmarket/ .
+# Копируем код парсера
+COPY yandexmarket/ ./yandexmarket/
+COPY common/ ./common/
 
-# Run the service
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8004"] 
+ENV PYTHONPATH=/app
+
+CMD ["python", "yandexmarket/main.py"] 

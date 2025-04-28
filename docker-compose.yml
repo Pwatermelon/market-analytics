@@ -1,20 +1,28 @@
-version: '3.8'
-
 services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - REACT_APP_API_URL=http://localhost:8000
+    depends_on:
+      - api-gateway
+
   api-gateway:
-    build: ./api-gateway
+    build:
+      context: .
+      dockerfile: api-gateway/Dockerfile
     ports:
       - "8000:8000"
-    depends_on:
-      - ozon-parser
-      - wildberries-parser
-      - goldapple-parser
-      - yandexmarket-parser
     environment:
-      - OZON_PARSER_URL=http://ozon-parser:8001
-      - WILDBERRIES_PARSER_URL=http://wildberries-parser:8002
-      - GOLDAPPLE_PARSER_URL=http://goldapple-parser:8003
-      - YANDEXMARKET_PARSER_URL=http://yandexmarket-parser:8004
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=INFO
+    volumes:
+      - ./models:/app/models
+      - ./parsers:/app/parsers
+    restart: unless-stopped
 
   ozon-parser:
     build:
@@ -42,11 +50,4 @@ services:
       context: ./parsers
       dockerfile: yandexmarket/Dockerfile
     ports:
-      - "8004:8004"
-
-  frontend:
-    build: ./frontend
-    ports:
-      - "3000:3000"
-    depends_on:
-      - api-gateway 
+      - "8004:8004" 

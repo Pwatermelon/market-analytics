@@ -1,18 +1,28 @@
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 import httpx
 import os
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
 import asyncio
 import logging
 import json
+import sys
+
+# Добавляем путь к парсерам в PYTHONPATH
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from parsers.main import MarketplaceParser
+from parsers.config import MARKETPLACE_CONFIG
 
 # Настройка логирования
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Market Analytics API Gateway")
+app = FastAPI(title="Market Analytics API")
 
 # Проверка переменных окружения
 required_env_vars = ['OZON_PARSER_URL', 'WILDBERRIES_PARSER_URL', 'GOLDAPPLE_PARSER_URL', 'YANDEXMARKET_PARSER_URL']
@@ -33,7 +43,6 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["*"]
 )
 
 class ProductSearch(BaseModel):
@@ -55,6 +64,91 @@ class Product(BaseModel):
     description: Optional[str] = None
     rating: Optional[float] = None
     image_url: Optional[str] = None
+
+class ParseRequest(BaseModel):
+    query: str
+    marketplaces: List[str] = []  # Если пусто, парсим все маркетплейсы
+
+class ParsingStatus(BaseModel):
+    status: str
+    progress: int = 0
+    results: Dict[str, List[Dict[str, Any]]] = {}
+    error: str = ""
+
+# Хранилище статусов парсинга
+parsing_statuses: Dict[str, ParsingStatus] = {}
+
+async def run_parsing(task_id: str, query: str, marketplaces: List[str]):
+    """Фоновая задача для парсинга"""
+    try:
+        parser = MarketplaceParser()
+        await parser.initialize()
+        
+        # Обновляем статус
+        parsing_statuses[task_id].status = "running"
+        
+        # Если маркетплейсы не указаны, используем все доступные
+        if not marketplaces:
+            marketplaces = list(MARKETPLACE_CONFIG.keys())
+        
+        results = {}
+        total_marketplaces = len(marketplaces)
+        
+        for i, marketplace in enumerate(marketplaces, 1):
+            try:
+                # Обновляем прогресс
+                parsing_statuses[task_id].progress = int((i / total_marketplaces) * 100)
+                
+                # Запускаем парсинг для конкретного маркетплейса
+                parser_instance = parser.parsers.get(marketplace)
+                if parser_instance:
+                    marketplace_results = await parser_instance.search_products(query)
+                    results[marketplace] = marketplace_results
+                else:
+                    logger.warning(f"Parser for marketplace {marketplace} not found")
+                    results[marketplace] = []
+                
+            except Exception as e:
+                logger.error(f"Error parsing {marketplace}: {e}")
+                results[marketplace] = []
+        
+        # Обновляем статус с результатами
+        parsing_statuses[task_id].status = "completed"
+        parsing_statuses[task_id].progress = 100
+        parsing_statuses[task_id].results = results
+        
+    except Exception as e:
+        logger.error(f"Error in parsing task: {e}")
+        parsing_statuses[task_id].status = "error"
+        parsing_statuses[task_id].error = str(e)
+    finally:
+        await parser.close()
+
+@app.post("/api/parse")
+async def start_parsing(request: ParseRequest, background_tasks: BackgroundTasks):
+    """Запуск парсинга в фоновом режиме"""
+    task_id = f"task_{len(parsing_statuses) + 1}"
+    
+    # Создаем запись о статусе
+    parsing_statuses[task_id] = ParsingStatus(status="pending")
+    
+    # Запускаем парсинг в фоновом режиме
+    background_tasks.add_task(run_parsing, task_id, request.query, request.marketplaces)
+    
+    return {"task_id": task_id}
+
+@app.get("/api/parse/{task_id}")
+async def get_parsing_status(task_id: str):
+    """Получение статуса парсинга и результатов"""
+    if task_id not in parsing_statuses:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    return parsing_statuses[task_id]
+
+@app.get("/api/marketplaces")
+async def get_marketplaces():
+    """Получение списка доступных маркетплейсов"""
+    return list(MARKETPLACE_CONFIG.keys())
 
 @app.post("/search", response_model=List[Product])
 async def search_products(search: ProductSearch, request: Request):
@@ -212,4 +306,8 @@ async def search_products(search: ProductSearch, request: Request):
 
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy"} 
+    return {"status": "healthy"}
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000) 
