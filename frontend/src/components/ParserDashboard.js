@@ -163,8 +163,18 @@ const ParserDashboard = () => {
                 onClick={() => handleProductSelect(product)}
               >
                 <CardContent>
+                  {/* Фото товара */}
+                  {product.photo || product.image_url ? (
+                    <Box sx={{ mb: 1, textAlign: 'center' }}>
+                      <img
+                        src={product.photo || product.image_url}
+                        alt={product.title || product.name}
+                        style={{ maxWidth: '100%', maxHeight: 160, objectFit: 'contain' }}
+                      />
+                    </Box>
+                  ) : null}
                   <Typography variant="h6" gutterBottom noWrap>
-                    {product.title}
+                    {product.title || product.name}
                   </Typography>
                   <Typography color="text.secondary">
                     Цена: {product.price} ₽
@@ -172,9 +182,11 @@ const ParserDashboard = () => {
                   <Typography color="text.secondary">
                     Рейтинг: {product.rating}
                   </Typography>
-                  <Typography color="text.secondary">
-                    Продавец: {product.seller}
-                  </Typography>
+                  {product.seller && (
+                    <Typography color="text.secondary">
+                      Продавец: {product.seller}
+                    </Typography>
+                  )}
                   <Typography 
                     variant="body2" 
                     color="primary" 
@@ -196,13 +208,43 @@ const ParserDashboard = () => {
         <Box>
           <Card sx={{ mb: 3 }}>
             <CardContent>
-              <Typography variant="h6">{selectedProduct.title}</Typography>
+              {/* Фото товара */}
+              {selectedProduct.photo || selectedProduct.image_url ? (
+                <Box sx={{ mb: 2, textAlign: 'center' }}>
+                  <img
+                    src={selectedProduct.photo || selectedProduct.image_url}
+                    alt={selectedProduct.title || selectedProduct.name}
+                    style={{ maxWidth: 220, maxHeight: 220, objectFit: 'contain' }}
+                  />
+                </Box>
+              ) : null}
+              <Typography variant="h6">{selectedProduct.title || selectedProduct.name}</Typography>
               <Typography color="text.secondary">
                 Маркетплейс: {selectedProduct.marketplace}
               </Typography>
+              <Typography color="text.secondary">
+                Цена: {selectedProduct.price} ₽
+              </Typography>
+              <Typography color="text.secondary">
+                Рейтинг: {selectedProduct.rating}
+              </Typography>
+              {selectedProduct.seller && (
+                <Typography color="text.secondary">
+                  Продавец: {selectedProduct.seller}
+                </Typography>
+              )}
+              <Typography 
+                variant="body2" 
+                color="primary" 
+                component="a" 
+                href={selectedProduct.url} 
+                target="_blank"
+                onClick={(e) => e.stopPropagation()}
+              >
+                Открыть на сайте
+              </Typography>
             </CardContent>
           </Card>
-          
           {loading ? (
             <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
               <CircularProgress />

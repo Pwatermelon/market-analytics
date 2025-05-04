@@ -1,6 +1,6 @@
 from bs4 import BeautifulSoup
 from typing import Dict, Any, List, Optional
-from ..common.base_parser import BaseParser
+from parsers.common.base_parser import BaseParser
 import logging
 import json
 import re
@@ -65,7 +65,9 @@ class YandexMarketParser(BaseParser):
                     url_elem = card.select_one('a[href*="/product/"]')
                     shop_elem = card.select_one('span[data-zone-name="shop-name"]')
                     rating_elem = card.select_one('span[data-zone-name="rating"]')
-                    
+                    # Добавляем парсинг фото
+                    photo_elem = card.select_one('img[data-zone-name="image"]')
+                    photo = photo_elem['src'] if photo_elem and photo_elem.has_attr('src') else ''
                     if not all([title_elem, url_elem]):
                         continue
                     
@@ -87,7 +89,8 @@ class YandexMarketParser(BaseParser):
                         "seller": shop,
                         "rating": rating,
                         "marketplace": self.marketplace_name,
-                        "product_id": product_id.group(1)
+                        "product_id": product_id.group(1),
+                        "photo": photo
                     }
                     
                     products.append(product)
@@ -182,7 +185,8 @@ class YandexMarketParser(BaseParser):
                 "seller": "",
                 "rating": 0.0,
                 "reviews_count": 0,
-                "reviews": []
+                "reviews": [],
+                "photo": ""
             }
             
             # Описание товара
@@ -221,6 +225,11 @@ class YandexMarketParser(BaseParser):
                     details["reviews_count"] = count
                 except:
                     pass
+            
+            # Фото товара (детальная страница)
+            photo_elem = soup.select_one('img[data-zone-name="image"]')
+            if photo_elem and photo_elem.has_attr('src'):
+                details["photo"] = photo_elem['src']
             
             # Получаем отзывы
             reviews = await self.get_reviews(product_url)

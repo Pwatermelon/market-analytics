@@ -1,6 +1,6 @@
 from bs4 import BeautifulSoup
 from typing import Dict, Any, List, Optional
-from ..common.base_parser import BaseParser
+from parsers.common.base_parser import BaseParser
 import logging
 import json
 import re
@@ -64,7 +64,9 @@ class WildberriesParser(BaseParser):
                     price_elem = card.select_one('span[class*="price-current"]')
                     url_elem = card.select_one('a[href*="/catalog/"]')
                     brand_elem = card.select_one('strong[class*="brand-name"]')
-                    
+                    # Добавляем парсинг фото
+                    photo_elem = card.select_one('img')
+                    photo = photo_elem['src'] if photo_elem and photo_elem.has_attr('src') else ''
                     if not all([title_elem, url_elem]):
                         continue
                     
@@ -84,7 +86,8 @@ class WildberriesParser(BaseParser):
                         "price": price,
                         "brand": brand,
                         "marketplace": self.marketplace_name,
-                        "product_id": product_id.group(1)
+                        "product_id": product_id.group(1),
+                        "photo": photo
                     }
                     
                     products.append(product)
@@ -178,7 +181,8 @@ class WildberriesParser(BaseParser):
                 "seller": "",
                 "rating": 0.0,
                 "reviews_count": 0,
-                "reviews": []
+                "reviews": [],
+                "photo": ""
             }
             
             # Описание товара
@@ -217,6 +221,11 @@ class WildberriesParser(BaseParser):
                     details["reviews_count"] = count
                 except:
                     pass
+            
+            # Фото товара (детальная страница)
+            photo_elem = soup.select_one('.photo-zoom__preview-img, .product-card__photo img')
+            if photo_elem and photo_elem.has_attr('src'):
+                details["photo"] = photo_elem['src']
             
             # Получаем отзывы
             reviews = await self.get_reviews(product_url)

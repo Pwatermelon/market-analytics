@@ -505,6 +505,9 @@ class GoldAppleParser(ProductParser):
                 if desc_elem:
                     description = desc_elem.text.strip()
                 
+                # Получаем отзывы (заглушка)
+                reviews = self.get_reviews(product_id)
+                
                 # Создаем объект товара
                 product = {
                     "id": product_id,
@@ -514,7 +517,8 @@ class GoldAppleParser(ProductParser):
                     "description": description,
                     "rating": rating,
                     "marketplace": "goldapple",
-                    "image_url": image_url
+                    "photo": image_url,
+                    "reviews": reviews
                 }
                 
                 products.append(product)
@@ -525,4 +529,9 @@ class GoldAppleParser(ProductParser):
                 continue
         
         logger.info(f"Successfully parsed {len(products)} products from Gold Apple")
-        return products 
+        return products
+    
+    def get_reviews(self, product_id: str) -> list:
+        # TODO: Реализовать реальный сбор отзывов, если появится доступ
+        # Сейчас возвращаем пустой список
+        return [] 

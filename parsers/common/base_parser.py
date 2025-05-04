@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import Dict, Any, List, Optional
-from .browser import BrowserManager
+from parsers.common.browser import BrowserManager
 import logging
 import json
 from datetime import datetime

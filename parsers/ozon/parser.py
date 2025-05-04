@@ -1,6 +1,6 @@
 from bs4 import BeautifulSoup
 from typing import Dict, Any, List, Optional
-from ..common.base_parser import BaseParser
+from parsers.common.base_parser import BaseParser
 import logging
 import json
 import re
@@ -59,7 +59,9 @@ class OzonParser(BaseParser):
                     title_elem = card.select_one('a span')
                     price_elem = card.select_one('span[data-widget="price"]')
                     url_elem = card.select_one('a[href*="/product/"]')
-                    
+                    # Добавляем парсинг фото
+                    photo_elem = card.select_one('img')
+                    photo = photo_elem['src'] if photo_elem and photo_elem.has_attr('src') else ''
                     if not all([title_elem, url_elem]):
                         continue
                     
@@ -71,6 +73,7 @@ class OzonParser(BaseParser):
                         "title": title,
                         "url": url,
                         "price": price,
+                        "photo": photo,
                         "marketplace": self.marketplace_name
                     }
                     
@@ -162,7 +165,8 @@ class OzonParser(BaseParser):
                 "seller": "",
                 "rating": 0.0,
                 "reviews_count": 0,
-                "reviews": []
+                "reviews": [],
+                "photo": ""
             }
             
             # Описание товара
@@ -201,6 +205,11 @@ class OzonParser(BaseParser):
                     details["reviews_count"] = reviews_count
                 except:
                     pass
+            
+            # Фото товара (детальная страница)
+            photo_elem = soup.select_one('[data-widget="webGallery"] img')
+            if photo_elem and photo_elem.has_attr('src'):
+                details["photo"] = photo_elem['src']
             
             # Получаем отзывы
             reviews = await self.get_reviews(product_url)

@@ -19,10 +19,9 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=INFO
-    volumes:
-      - ./models:/app/models
-      - ./parsers:/app/parsers
-    restart: unless-stopped
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
 
   ozon-parser:
     build:
@@ -30,6 +29,9 @@ services:
       dockerfile: ozon/Dockerfile
     ports:
       - "8001:8001"
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
 
   wildberries-parser:
     build:
@@ -37,6 +39,9 @@ services:
       dockerfile: wildberries/Dockerfile
     ports:
       - "8002:8002"
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
 
   goldapple-parser:
     build:
@@ -44,10 +49,16 @@ services:
       dockerfile: goldapple/Dockerfile
     ports:
       - "8003:8003"
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
 
   yandexmarket-parser:
     build:
       context: ./parsers
       dockerfile: yandexmarket/Dockerfile
     ports:
-      - "8004:8004" 
+      - "8004:8004"
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4 
