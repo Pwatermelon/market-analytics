@@ -1,3 +1,0 @@
-"""
-Market Analytics Parsers Package
-""" 
