@@ -52,7 +52,7 @@ const App: React.FC = () => {
 
   return (
     <div style={{ maxWidth: 800, margin: '40px auto', fontFamily: 'sans-serif' }}>
-      <h1>Market Analytics: Wildberries & Яндекс.Маркет</h1>
+      <h1>Magnit Market Analytics: Wildberries, Яндекс.Маркет и Magnit Market</h1>
       <form onSubmit={handleSearch} style={{ marginBottom: 24 }}>
         <input
           value={query}
@@ -71,8 +71,18 @@ const App: React.FC = () => {
               <a href={p.link} target="_blank" rel="noopener noreferrer" style={{ fontSize: 18, fontWeight: 600 }}>{p.title}</a>
               <div style={{ fontSize: 16, color: '#a600a6', margin: '8px 0' }}>{p.price}</div>
               <div style={{ marginBottom: 8 }}>
-                <span style={{ padding: '2px 8px', borderRadius: 6, background: p.source === 'wb' ? '#a600a6' : '#ffdb4d', color: p.source === 'wb' ? '#fff' : '#222', fontSize: 13 }}>
-                  {p.source === 'wb' ? 'Wildberries' : 'Яндекс.Маркет'}
+                <span style={{ padding: '2px 8px', borderRadius: 6, background:
+                  p.source === 'wb' ? '#a600a6' :
+                  p.source === 'ym' ? '#ffdb4d' :
+                  p.source === 'mm' ? '#e53935' : '#ccc',
+                  color:
+                  p.source === 'wb' ? '#fff' :
+                  p.source === 'ym' ? '#222' :
+                  p.source === 'mm' ? '#fff' : '#222',
+                  fontSize: 13 }}>
+                  {p.source === 'wb' ? 'Wildberries' :
+                   p.source === 'ym' ? 'Яндекс.Маркет' :
+                   p.source === 'mm' ? 'Magnit Market' : p.source}
                 </span>
               </div>
               <div>

@@ -30,4 +30,10 @@ services:
       - ./bot/.env
     depends_on:
       - gateway
+    restart: unless-stopped
+  review-analyzer:
+    build: ./backend/review_analyzer
+    container_name: market-analytics-review-analyzer
+    ports:
+      - "8500:8500"
     restart: unless-stopped 
