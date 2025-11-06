@@ -1,6 +1,0 @@
-numpy<2.0
-fastapi
-transformers
-uvicorn
-sentencepiece
-protobuf 
