@@ -1,0 +1,16 @@
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+sqlalchemy==2.0.23
+psycopg2-binary==2.9.9
+httpx==0.25.2
+beautifulsoup4==4.12.2
+lxml==4.9.3
+python-multipart==0.0.6
+pydantic==2.5.0
+selenium==4.15.2
+playwright==1.40.0
+undetected-chromedriver==3.5.4
+fake-useragent==1.4.0
+requests==2.31.0
+cloudscraper==1.2.71
+

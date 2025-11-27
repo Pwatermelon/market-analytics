@@ -1,0 +1,138 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: market-analytics-db
+    environment:
+      POSTGRES_DB: market_analytics
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - market-network
+
+  # Redis для кеширования и очередей
+  redis:
+    image: redis:7-alpine
+    container_name: market-analytics-redis
+    ports:
+      - "6379:6379"
+    networks:
+      - market-network
+
+  # API Gateway
+  api-gateway:
+    build:
+      context: ./services/api-gateway
+      dockerfile: Dockerfile
+    container_name: market-analytics-gateway
+    ports:
+      - "8000:8000"
+    environment:
+      - AUTH_SERVICE_URL=http://auth-service:8001
+      - PARSER_SERVICE_URL=http://parser-service:8002
+      - ANALYZER_SERVICE_URL=http://analyzer-service:8003
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - auth-service
+      - parser-service
+      - analyzer-service
+      - redis
+    networks:
+      - market-network
+
+  # Auth Service
+  auth-service:
+    build:
+      context: ./services/auth-service
+      dockerfile: Dockerfile
+    container_name: market-analytics-auth
+    ports:
+      - "8001:8001"
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/market_analytics
+      - JWT_SECRET=your-super-secret-jwt-key-change-in-production
+      - JWT_ALGORITHM=HS256
+      - JWT_EXPIRATION=86400
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - market-network
+
+  # Parser Service
+  parser-service:
+    build:
+      context: ./services/parser-service
+      dockerfile: Dockerfile
+    container_name: market-analytics-parser
+    ports:
+      - "8002:8002"
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/market_analytics
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    networks:
+      - market-network
+
+  # Analyzer Service (ML)
+  analyzer-service:
+    build:
+      context: ./services/analyzer-service
+      dockerfile: Dockerfile
+    container_name: market-analytics-analyzer
+    ports:
+      - "8003:8003"
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/market_analytics
+      - MODEL_PATH=/app/models
+      - REDIS_URL=redis://redis:6379
+      # Опционально: укажите модели из Hugging Face по имени
+      # - SENTIMENT_MODEL_NAME=your-username/your-model
+      # - SUMMARIZER_MODEL_NAME=your-username/your-model
+    volumes:
+      - ./models:/app/models
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    networks:
+      - market-network
+
+  # Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: market-analytics-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - REACT_APP_API_URL=http://localhost:8000
+    depends_on:
+      - api-gateway
+    networks:
+      - market-network
+
+volumes:
+  postgres_data:
+
+networks:
+  market-network:
+    driver: bridge
+
