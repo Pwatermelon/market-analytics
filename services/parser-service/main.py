@@ -447,9 +447,11 @@ async def parse_product_reviews(
             except Exception as e:
                 logger.error(f"⚠️ Не удалось получить название товара: {e}")
         
-        # Парсинг отзывов
+        # Парсинг отзывов (запускаем в отдельном потоке, чтобы не блокировать event loop)
         logger.info(f"🔎 Начало парсинга отзывов с {product.marketplace}...")
-        reviews_data = parse_reviews(product.url, product.marketplace)
+        import asyncio
+        loop = asyncio.get_event_loop()
+        reviews_data = await loop.run_in_executor(None, parse_reviews, product.url, product.marketplace)
         
         if not reviews_data:
             product.parsing_status = "completed"

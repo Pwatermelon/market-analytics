@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    
+    <!-- Analytics Chart Icon -->
+    <group
+        android:translateX="24"
+        android:translateY="24">
+        
+        <!-- Base line -->
+        <path
+            android:fillColor="#00D9FF"
+            android:pathData="M10,50 L10,52 L50,52 L50,50 Z"/>
+        
+        <!-- Bar 1 -->
+        <path
+            android:fillColor="#00D9FF"
+            android:pathData="M14,35 L14,50 L20,50 L20,35 Z"/>
+        
+        <!-- Bar 2 -->
+        <path
+            android:fillColor="#9D4EDD"
+            android:pathData="M24,25 L24,50 L30,50 L30,25 Z"/>
+        
+        <!-- Bar 3 -->
+        <path
+            android:fillColor="#00D9FF"
+            android:pathData="M34,30 L34,50 L40,50 L40,30 Z"/>
+        
+        <!-- Bar 4 -->
+        <path
+            android:fillColor="#00E676"
+            android:pathData="M44,15 L44,50 L50,50 L50,15 Z"/>
+        
+        <!-- Trend line -->
+        <path
+            android:strokeColor="#FF9100"
+            android:strokeWidth="2"
+            android:pathData="M17,32 L27,22 L37,27 L47,12"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round"/>
+        
+        <!-- Trend arrow -->
+        <path
+            android:fillColor="#FF9100"
+            android:pathData="M47,12 L50,8 L53,15 Z"/>
+        
+    </group>
+</vector>
+
+
+
+
+
+

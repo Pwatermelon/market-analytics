@@ -1,6 +1,7 @@
 """
 Простые и надежные парсеры для всех маркетплейсов
 Использует Playwright для надежной работы в Docker
+Все вызовы Playwright обернуты в ThreadPoolExecutor для работы с asyncio
 """
 from typing import List, Dict, Optional
 from datetime import datetime
@@ -10,7 +11,17 @@ import time
 import requests
 from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright, Browser, Page
+import concurrent.futures
 from .base_parser import BaseParser
+
+
+def _run_playwright_in_thread(func):
+    """Обертка для запуска sync_playwright в отдельном потоке"""
+    def wrapper(*args, **kwargs):
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future = executor.submit(func, *args, **kwargs)
+            return future.result(timeout=300)  # 5 минут таймаут
+    return wrapper
 
 
 class SimpleWildberriesParser(BaseParser):
@@ -86,7 +97,7 @@ class SimpleWildberriesParser(BaseParser):
                         print(f"✅ API вернул {len(reviews)} отзывов")
                         return reviews
                     else:
-                        print(f"⚠️ API вернул 0 отзывов, пробую Selenium...")
+                        print(f"⚠️ API вернул 0 отзывов, пробую Playwright...")
                 except json.JSONDecodeError as e:
                     print(f"❌ Ошибка парсинга JSON: {e}")
                     print(f"Ответ API: {r.text[:500]}")
@@ -100,107 +111,118 @@ class SimpleWildberriesParser(BaseParser):
         # Fallback на Playwright (надежнее чем Selenium)
         print("🔄 Переключаюсь на Playwright парсинг...")
         try:
-            with sync_playwright() as p:
-                print("🚀 Запускаю браузер Playwright...")
-                browser = p.chromium.launch(
-                    headless=True,
-                    args=['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
-                )
-                page = browser.new_page()
-                page.set_viewport_size({"width": 1920, "height": 1080})
-                
-                feedback_url = f"https://www.wildberries.ru/catalog/{article}/feedbacks"
-                print(f"🌐 Открываю страницу отзывов: {feedback_url}")
-                page.goto(feedback_url, wait_until="networkidle", timeout=30000)
-                time.sleep(3)
-                
-                # Прокручиваем для загрузки
-                print("📜 Прокручиваю страницу...")
-                for i in range(15):
-                    page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                    time.sleep(2)
+            def _playwright_parse():
+                with sync_playwright() as p:
+                    print("🚀 Запускаю браузер Playwright...")
+                    browser = p.chromium.launch(
+                        headless=True,
+                        args=['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+                    )
+                    page = browser.new_page()
+                    page.set_viewport_size({"width": 1920, "height": 1080})
                     
-                    # Ищем кнопки "Показать еще"
-                    try:
-                        buttons = page.query_selector_all("button")
-                        for btn in buttons:
-                            try:
-                                text = btn.inner_text().lower()
-                                if any(word in text for word in ["показать", "еще", "загрузить"]):
-                                    btn.click()
-                                    print(f"✅ Кликнул кнопку")
-                                    time.sleep(3)
-                            except:
-                                continue
-                    except:
-                        pass
-                
-                # Извлекаем через JS
-                print("🔍 Извлекаю отзывы через JavaScript...")
-                js_code = """
-                const reviews = [];
-                const selectors = [
-                    '[data-feedback-id]',
-                    '.feedback-item',
-                    'article',
-                    '[class*="feedback"]'
-                ];
-                
-                let items = [];
-                for (let sel of selectors) {
-                    items.push(...document.querySelectorAll(sel));
-                }
-                
-                items = Array.from(new Set(items));
-                console.log('Найдено элементов:', items.length);
-                
-                items.forEach(item => {
-                    const text = (item.innerText || item.textContent || '').trim();
-                    if (text.length < 30) return;
+                    feedback_url = f"https://www.wildberries.ru/catalog/{article}/feedbacks"
+                    print(f"🌐 Открываю страницу отзывов: {feedback_url}")
+                    page.goto(feedback_url, wait_until="networkidle", timeout=30000)
+                    time.sleep(3)
                     
-                    // Пропускаем служебные элементы
-                    if (text.toLowerCase().includes('cookie') || 
-                        text.toLowerCase().includes('политика')) return;
+                    # Прокручиваем для загрузки
+                    print("📜 Прокручиваю страницу...")
+                    for i in range(15):
+                        page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                        time.sleep(2)
+                        
+                        # Ищем кнопки "Показать еще"
+                        try:
+                            buttons = page.query_selector_all("button")
+                            for btn in buttons:
+                                try:
+                                    text = btn.inner_text().lower()
+                                    if any(word in text for word in ["показать", "еще", "загрузить"]):
+                                        btn.click()
+                                        print(f"✅ Кликнул кнопку")
+                                        time.sleep(3)
+                                except:
+                                    continue
+                        except:
+                            pass
                     
-                    const author = item.querySelector('strong, b, [class*="author"]')?.innerText?.trim() || 'Аноним';
-                    const stars = item.querySelectorAll('[class*="star"][class*="fill"], [class*="star"].active, .star-fill').length || 0;
+                    # Извлекаем через JS
+                    print("🔍 Извлекаю отзывы через JavaScript...")
+                    js_code = """
+                    const reviews = [];
+                    const selectors = [
+                        '[data-feedback-id]',
+                        '.feedback-item',
+                        'article',
+                        '[class*="feedback"]'
+                    ];
                     
-                    if (text.length > 20) {
-                        reviews.push({
-                            author: author.length > 50 ? 'Аноним' : author,
-                            rating: stars,
-                            text: text
-                        });
+                    let items = [];
+                    for (let sel of selectors) {
+                        items.push(...document.querySelectorAll(sel));
                     }
-                });
-                
-                return reviews;
-                """
-                
-                result = page.evaluate(js_code)
-                print(f"📊 JavaScript нашел {len(result) if result else 0} элементов")
-                
-                reviews = []
-                seen_texts = set()
-                for item in (result or []):
-                    text = item.get('text', '').strip()
-                    if not text or len(text) < 20:
-                        continue
                     
-                    # Проверка дубликатов
-                    text_hash = hash(text[:100])
-                    if text_hash in seen_texts:
-                        continue
-                    seen_texts.add(text_hash)
+                    items = Array.from(new Set(items));
+                    console.log('Найдено элементов:', items.length);
                     
-                    reviews.append({
-                        "author": item.get('author', 'Аноним'),
-                        "rating": item.get('rating', 0),
-                        "text": text,
-                        "date": datetime.now()
-                    })
-                
-                browser.close()
+                    items.forEach(item => {
+                        const text = (item.innerText || item.textContent || '').trim();
+                        if (text.length < 30) return;
+                        
+                        // Пропускаем служебные элементы
+                        if (text.toLowerCase().includes('cookie') || 
+                            text.toLowerCase().includes('политика')) return;
+                        
+                        const author = item.querySelector('strong, b, [class*="author"]')?.innerText?.trim() || 'Аноним';
+                        const stars = item.querySelectorAll('[class*="star"][class*="fill"], [class*="star"].active, .star-fill').length || 0;
+                        
+                        if (text.length > 20) {
+                            reviews.push({
+                                author: author.length > 50 ? 'Аноним' : author,
+                                rating: stars,
+                                text: text
+                            });
+                        }
+                    });
+                    
+                    return reviews;
+                    """
+                    
+                    result = page.evaluate(js_code)
+                    print(f"📊 JavaScript нашел {len(result) if result else 0} элементов")
+                    
+                    reviews = []
+                    seen_texts = set()
+                    for item in (result or []):
+                        text = item.get('text', '').strip()
+                        if not text or len(text) < 20:
+                            continue
+                        
+                        # Проверка дубликатов
+                        text_hash = hash(text[:100])
+                        if text_hash in seen_texts:
+                            continue
+                        seen_texts.add(text_hash)
+                        
+                        reviews.append({
+                            "author": item.get('author', 'Аноним'),
+                            "rating": item.get('rating', 0),
+                            "text": text,
+                            "date": datetime.now()
+                        })
+                    
+                    browser.close()
+                    return reviews
+            
+            # Запускаем в отдельном потоке
+            print("📝 Запускаю ThreadPoolExecutor для Wildberries...")
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                print("📝 Отправляю задачу в поток...")
+                future = executor.submit(_playwright_parse)
+                print("📝 Ожидаю результат (таймаут 300 сек)...")
+                reviews = future.result(timeout=300)  # 5 минут таймаут
+                print(f"📝 Получен результат: {len(reviews) if reviews else 0} отзывов")
                 
                 if reviews:
                     print(f"✅ Playwright нашел {len(reviews)} отзывов")
@@ -231,18 +253,22 @@ class SimpleOzonParser(BaseParser):
     
     def get_product_name(self, url: str) -> Optional[str]:
         try:
-            with sync_playwright() as p:
-                browser = p.chromium.launch(
-                    headless=True,
-                    args=['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
-                )
-                page = browser.new_page()
-                page.goto(url, wait_until="networkidle", timeout=30000)
-                time.sleep(2)
-                h1 = page.query_selector('h1')
-                name = h1.inner_text().strip() if h1 else None
-                browser.close()
-                return name
+            def _get_name():
+                with sync_playwright() as p:
+                    browser = p.chromium.launch(
+                        headless=True,
+                        args=['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+                    )
+                    page = browser.new_page()
+                    page.goto(url, wait_until="networkidle", timeout=30000)
+                    time.sleep(2)
+                    h1 = page.query_selector('h1')
+                    name = h1.inner_text().strip() if h1 else None
+                    browser.close()
+                    return name
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(_get_name)
+                return future.result(timeout=60)
         except:
             return None
     
@@ -254,96 +280,136 @@ class SimpleOzonParser(BaseParser):
         
         print(f"🔍 Извлечен ID товара: {product_id}")
         print("🚀 Запускаю Playwright для Ozon...")
+        print("📝 [MAIN] Перед запуском ThreadPoolExecutor...")
         
         reviews = []
         try:
-            with sync_playwright() as p:
-                browser = p.chromium.launch(
-                    headless=True,
-                    args=['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
-                )
-                page = browser.new_page()
-                page.set_viewport_size({"width": 1920, "height": 1080})
-                
-                review_url = f"https://www.ozon.ru/product/{product_id}/reviews/"
-                print(f"🌐 Открываю страницу отзывов: {review_url}")
-                page.goto(review_url, wait_until="networkidle", timeout=30000)
-                time.sleep(3)
-                
-                print("📜 Прокручиваю страницу...")
-                for i in range(15):
-                    page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                    time.sleep(2)
-                    
-                    # Ищем кнопки "Показать еще"
-                    try:
-                        buttons = page.query_selector_all("button")
-                        for btn in buttons:
+            def _playwright_parse():
+                print("📝 [THREAD] Начало выполнения в отдельном потоке для Ozon...")
+                import sys
+                sys.stdout.flush()
+                try:
+                    print("📝 [THREAD] Инициализация Playwright...")
+                    sys.stdout.flush()
+                    with sync_playwright() as p:
+                        print("📝 [THREAD] Playwright инициализирован, запускаю браузер...")
+                        browser = p.chromium.launch(
+                            headless=True,
+                            args=['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+                        )
+                        print("📝 [THREAD] Браузер запущен, создаю страницу...")
+                        page = browser.new_page()
+                        page.set_viewport_size({"width": 1920, "height": 1080})
+                        
+                        review_url = f"https://www.ozon.ru/product/{product_id}/reviews/"
+                        print(f"🌐 Открываю страницу отзывов: {review_url}")
+                        page.goto(review_url, wait_until="networkidle", timeout=30000)
+                        time.sleep(3)
+                        
+                        print("📜 Прокручиваю страницу...")
+                        for i in range(15):
+                            page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                            time.sleep(2)
+                            
+                            # Ищем кнопки "Показать еще"
                             try:
-                                text = btn.inner_text().lower()
-                                if any(word in text for word in ["показать", "еще", "загрузить"]):
-                                    btn.click()
-                                    print(f"✅ Кликнул кнопку")
-                                    time.sleep(3)
+                                buttons = page.query_selector_all("button")
+                                for btn in buttons:
+                                    try:
+                                        text = btn.inner_text().lower()
+                                        if any(word in text for word in ["показать", "еще", "загрузить"]):
+                                            btn.click()
+                                            print(f"✅ Кликнул кнопку")
+                                            time.sleep(3)
+                                    except:
+                                        continue
                             except:
+                                pass
+                        
+                        # Извлекаем через JS
+                        print("🔍 Извлекаю отзывы через JavaScript...")
+                        js = """
+                        const reviews = [];
+                        const selectors = [
+                            '[data-widget="webReview"]',
+                            'article[class*="review"]',
+                            '[class*="review-item"]'
+                        ];
+                        
+                        let items = [];
+                        for (let sel of selectors) {
+                            items.push(...document.querySelectorAll(sel));
+                        }
+                        items = Array.from(new Set(items));
+                        
+                        items.forEach(item => {
+                            const text = (item.innerText || item.textContent || '').trim();
+                            if (text.length < 30) return;
+                            if (text.toLowerCase().includes('cookie') || text.toLowerCase().includes('политика')) return;
+                            
+                            const author = item.querySelector('strong, b, [class*="author"]')?.innerText?.trim() || 'Аноним';
+                            const stars = item.querySelectorAll('[class*="star"][class*="fill"], [class*="star"].active').length || 0;
+                            
+                            if (text.length > 20) {
+                                reviews.push({author: author.length > 50 ? 'Аноним' : author, rating: stars, text: text});
+                            }
+                        });
+                        return reviews;
+                        """
+                        
+                        result = page.evaluate(js)
+                        print(f"📊 JavaScript нашел {len(result) if result else 0} элементов")
+                        
+                        seen_texts = set()
+                        reviews_list = []
+                        for item in (result or []):
+                            text = item.get('text', '').strip()
+                            if not text or len(text) < 20:
                                 continue
-                    except:
-                        pass
-                
-                # Извлекаем через JS
-                print("🔍 Извлекаю отзывы через JavaScript...")
-                js = """
-                const reviews = [];
-                const selectors = [
-                    '[data-widget="webReview"]',
-                    'article[class*="review"]',
-                    '[class*="review-item"]'
-                ];
-                
-                let items = [];
-                for (let sel of selectors) {
-                    items.push(...document.querySelectorAll(sel));
-                }
-                items = Array.from(new Set(items));
-                
-                items.forEach(item => {
-                    const text = (item.innerText || item.textContent || '').trim();
-                    if (text.length < 30) return;
-                    if (text.toLowerCase().includes('cookie') || text.toLowerCase().includes('политика')) return;
-                    
-                    const author = item.querySelector('strong, b, [class*="author"]')?.innerText?.trim() || 'Аноним';
-                    const stars = item.querySelectorAll('[class*="star"][class*="fill"], [class*="star"].active').length || 0;
-                    
-                    if (text.length > 20) {
-                        reviews.push({author: author.length > 50 ? 'Аноним' : author, rating: stars, text: text});
-                    }
-                });
-                return reviews;
-                """
-                
-                result = page.evaluate(js)
-                print(f"📊 JavaScript нашел {len(result) if result else 0} элементов")
-                
-                seen_texts = set()
-                for item in (result or []):
-                    text = item.get('text', '').strip()
-                    if not text or len(text) < 20:
-                        continue
-                    
-                    # Проверка дубликатов
-                    text_hash = hash(text[:100])
-                    if text_hash in seen_texts:
-                        continue
-                    seen_texts.add(text_hash)
-                    
-                    reviews.append({
-                        "author": item.get('author', 'Аноним'),
-                        "rating": item.get('rating', 0),
-                        "text": text,
-                        "date": datetime.now()
-                    })
-                
-                browser.close()
+                            
+                            # Проверка дубликатов
+                            text_hash = hash(text[:100])
+                            if text_hash in seen_texts:
+                                continue
+                            seen_texts.add(text_hash)
+                            
+                            reviews_list.append({
+                                "author": item.get('author', 'Аноним'),
+                                "rating": item.get('rating', 0),
+                                "text": text,
+                                "date": datetime.now()
+                            })
+                        
+                        browser.close()
+                        print("📝 [THREAD] Браузер закрыт, возвращаю результаты...")
+                        return reviews_list
+                except Exception as e:
+                    print(f"📝 [THREAD] Ошибка в потоке Ozon: {e}")
+                    import traceback
+                    print(traceback.format_exc())
+                    return []
+            
+            print("📝 [MAIN] Запускаю ThreadPoolExecutor для Ozon...")
+            import sys
+            sys.stdout.flush()
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                print("📝 [MAIN] Отправляю задачу в поток...")
+                sys.stdout.flush()
+                future = executor.submit(_playwright_parse)
+                print("📝 [MAIN] Ожидаю результат (таймаут 300 сек)...")
+                sys.stdout.flush()
+                try:
+                    reviews = future.result(timeout=300)
+                    print(f"📝 [MAIN] Получен результат: {len(reviews) if reviews else 0} отзывов")
+                    sys.stdout.flush()
+                except concurrent.futures.TimeoutError:
+                    print("❌ [MAIN] Таймаут при ожидании результата!")
+                    sys.stdout.flush()
+                    reviews = []
+                except Exception as e:
+                    print(f"❌ [MAIN] Ошибка при получении результата: {e}")
+                    sys.stdout.flush()
+                    reviews = []
                 
                 if reviews:
                     print(f"✅ Найдено {len(reviews)} отзывов")
@@ -370,18 +436,22 @@ class SimpleYandexMarketParser(BaseParser):
     
     def get_product_name(self, url: str) -> Optional[str]:
         try:
-            with sync_playwright() as p:
-                browser = p.chromium.launch(
-                    headless=True,
-                    args=['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
-                )
-                page = browser.new_page()
-                page.goto(url, wait_until="networkidle", timeout=30000)
-                time.sleep(2)
-                h1 = page.query_selector('h1')
-                name = h1.inner_text().strip() if h1 else None
-                browser.close()
-                return name
+            def _get_name():
+                with sync_playwright() as p:
+                    browser = p.chromium.launch(
+                        headless=True,
+                        args=['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+                    )
+                    page = browser.new_page()
+                    page.goto(url, wait_until="networkidle", timeout=30000)
+                    time.sleep(2)
+                    h1 = page.query_selector('h1')
+                    name = h1.inner_text().strip() if h1 else None
+                    browser.close()
+                    return name
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(_get_name)
+                return future.result(timeout=60)
         except:
             return None
     
@@ -396,101 +466,108 @@ class SimpleYandexMarketParser(BaseParser):
         
         reviews = []
         try:
-            with sync_playwright() as p:
-                browser = p.chromium.launch(
-                    headless=True,
-                    args=['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
-                )
-                page = browser.new_page()
-                page.set_viewport_size({"width": 1920, "height": 1080})
-                
-                # Пробуем найти slug из URL
-                slug_match = re.search(r'/card/([^/]+)/', url)
-                slug = slug_match.group(1) if slug_match else ''
-                
-                if slug:
-                    review_url = f"https://market.yandex.ru/card/{slug}/{product_id}/reviews"
-                else:
-                    review_url = f"https://market.yandex.ru/product/{product_id}/reviews"
-                
-                print(f"🌐 Открываю страницу отзывов: {review_url}")
-                page.goto(review_url, wait_until="networkidle", timeout=30000)
-                time.sleep(3)
-                
-                print("📜 Прокручиваю страницу...")
-                for i in range(15):
-                    page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                    time.sleep(2)
+            def _playwright_parse():
+                with sync_playwright() as p:
+                    browser = p.chromium.launch(
+                        headless=True,
+                        args=['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+                    )
+                    page = browser.new_page()
+                    page.set_viewport_size({"width": 1920, "height": 1080})
                     
-                    # Ищем кнопки "Показать еще"
-                    try:
-                        buttons = page.query_selector_all("button")
-                        for btn in buttons:
-                            try:
-                                text = btn.inner_text().lower()
-                                if any(word in text for word in ["показать", "еще", "загрузить"]):
-                                    btn.click()
-                                    print(f"✅ Кликнул кнопку")
-                                    time.sleep(3)
-                            except:
-                                continue
-                    except:
-                        pass
-                
-                # Извлекаем через JS
-                print("🔍 Извлекаю отзывы через JavaScript...")
-                js = """
-                const reviews = [];
-                const selectors = [
-                    '[class*="review"]',
-                    'article[class*="review"]',
-                    '[data-review-id]'
-                ];
-                
-                let items = [];
-                for (let sel of selectors) {
-                    items.push(...document.querySelectorAll(sel));
-                }
-                items = Array.from(new Set(items));
-                
-                items.forEach(item => {
-                    const text = (item.innerText || item.textContent || '').trim();
-                    if (text.length < 30) return;
-                    if (text.toLowerCase().includes('cookie') || text.toLowerCase().includes('политика')) return;
+                    # Пробуем найти slug из URL
+                    slug_match = re.search(r'/card/([^/]+)/', url)
+                    slug = slug_match.group(1) if slug_match else ''
                     
-                    const author = item.querySelector('strong, b, [class*="author"]')?.innerText?.trim() || 'Аноним';
-                    const stars = item.querySelectorAll('[class*="star"][class*="fill"], [class*="star"].active').length || 0;
+                    if slug:
+                        review_url = f"https://market.yandex.ru/card/{slug}/{product_id}/reviews"
+                    else:
+                        review_url = f"https://market.yandex.ru/product/{product_id}/reviews"
                     
-                    if (text.length > 20) {
-                        reviews.push({author: author.length > 50 ? 'Аноним' : author, rating: stars, text: text});
+                    print(f"🌐 Открываю страницу отзывов: {review_url}")
+                    page.goto(review_url, wait_until="networkidle", timeout=30000)
+                    time.sleep(3)
+                    
+                    print("📜 Прокручиваю страницу...")
+                    for i in range(15):
+                        page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                        time.sleep(2)
+                        
+                        # Ищем кнопки "Показать еще"
+                        try:
+                            buttons = page.query_selector_all("button")
+                            for btn in buttons:
+                                try:
+                                    text = btn.inner_text().lower()
+                                    if any(word in text for word in ["показать", "еще", "загрузить"]):
+                                        btn.click()
+                                        print(f"✅ Кликнул кнопку")
+                                        time.sleep(3)
+                                except:
+                                    continue
+                        except:
+                            pass
+                    
+                    # Извлекаем через JS
+                    print("🔍 Извлекаю отзывы через JavaScript...")
+                    js = """
+                    const reviews = [];
+                    const selectors = [
+                        '[class*="review"]',
+                        'article[class*="review"]',
+                        '[data-review-id]'
+                    ];
+                    
+                    let items = [];
+                    for (let sel of selectors) {
+                        items.push(...document.querySelectorAll(sel));
                     }
-                });
-                return reviews;
-                """
-                
-                result = page.evaluate(js)
-                print(f"📊 JavaScript нашел {len(result) if result else 0} элементов")
-                
-                seen_texts = set()
-                for item in (result or []):
-                    text = item.get('text', '').strip()
-                    if not text or len(text) < 20:
-                        continue
+                    items = Array.from(new Set(items));
                     
-                    # Проверка дубликатов
-                    text_hash = hash(text[:100])
-                    if text_hash in seen_texts:
-                        continue
-                    seen_texts.add(text_hash)
+                    items.forEach(item => {
+                        const text = (item.innerText || item.textContent || '').trim();
+                        if (text.length < 30) return;
+                        if (text.toLowerCase().includes('cookie') || text.toLowerCase().includes('политика')) return;
+                        
+                        const author = item.querySelector('strong, b, [class*="author"]')?.innerText?.trim() || 'Аноним';
+                        const stars = item.querySelectorAll('[class*="star"][class*="fill"], [class*="star"].active').length || 0;
+                        
+                        if (text.length > 20) {
+                            reviews.push({author: author.length > 50 ? 'Аноним' : author, rating: stars, text: text});
+                        }
+                    });
+                    return reviews;
+                    """
                     
-                    reviews.append({
-                        "author": item.get('author', 'Аноним'),
-                        "rating": item.get('rating', 0),
-                        "text": text,
-                        "date": datetime.now()
-                    })
-                
-                browser.close()
+                    result = page.evaluate(js)
+                    print(f"📊 JavaScript нашел {len(result) if result else 0} элементов")
+                    
+                    seen_texts = set()
+                    reviews_list = []
+                    for item in (result or []):
+                        text = item.get('text', '').strip()
+                        if not text or len(text) < 20:
+                            continue
+                        
+                        # Проверка дубликатов
+                        text_hash = hash(text[:100])
+                        if text_hash in seen_texts:
+                            continue
+                        seen_texts.add(text_hash)
+                        
+                        reviews_list.append({
+                            "author": item.get('author', 'Аноним'),
+                            "rating": item.get('rating', 0),
+                            "text": text,
+                            "date": datetime.now()
+                        })
+                    
+                    browser.close()
+                    return reviews_list
+            
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(_playwright_parse)
+                reviews = future.result(timeout=300)
                 
                 if reviews:
                     print(f"✅ Найдено {len(reviews)} отзывов")
@@ -500,4 +577,3 @@ class SimpleYandexMarketParser(BaseParser):
             print(traceback.format_exc())
         
         return reviews
-
